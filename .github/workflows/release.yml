@@ -1,0 +1,81 @@
+name: Build and push packages
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        version: [38, 39]
+    runs-on: ubuntu-latest
+    name: Build and publish rpm
+    container:
+      image: 'registry.fedoraproject.org/fedora:${{ matrix.version }}'
+      options: --privileged
+      volumes:
+        - /sys/fs/cgroup:/sys/fs/cgroup
+
+    steps:
+      - name: Prepare
+        run: |
+          dnf -y in git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          GPG_KEY: ${{ secrets.GPG_KEY }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo 'max_parallel_downloads=20' >> /etc/dnf/dnf.conf && \
+          dnf -y up && \
+          dnf -y install rpm-sign git-lfs fedora-packager rpmdevtools sudo https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+          https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm && \
+          cat << 'EOF' >> /etc/mock/templates/fedora-branched.tpl
+          config_opts['dnf.conf'] += """
+          [copr:copr.fedorainfracloud.org:solopasha:playground]
+          name=Copr repo for playground owned by solopasha
+          baseurl=https://download.copr.fedorainfracloud.org/results/solopasha/playground/fedora-$releasever-$basearch/
+          type=rpm-md
+          skip_if_unavailable=True
+          gpgcheck=1
+          gpgkey=https://download.copr.fedorainfracloud.org/results/solopasha/playground/pubkey.gpg
+          repo_gpgcheck=0
+          enabled=1
+          enabled_metadata=1
+          """
+          EOF
+          cat << 'EOF' >> /etc/mock/site-defaults.cfg
+          config_opts['plugin_conf']['sign_enable'] = True
+          config_opts['plugin_conf']['sign_opts'] = {}
+          config_opts['plugin_conf']['sign_opts']['cmd'] = 'rpmsign'
+          config_opts['plugin_conf']['sign_opts']['opts'] = '--addsign %(rpms)s'
+          EOF
+          dnf -y install mock-rpmfusion-free mock-rpmfusion-nonfree && \
+          useradd -m -G mock builduser && \
+          echo 'builduser ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builduser && \
+          chown -R builduser:builduser ./
+          bash entrypoint.sh tuxclocker-nvidia-plugin
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        if: success() || failure()
+        with:
+          name: build-${{ env.VERSION }}
+          path: repo/fedora-${{ matrix.version }}*
+
+      # - name: Create release
+      #   uses: 'marvinpinto/action-automatic-releases@latest'
+      #   with:
+      #     repo_token: '${{ secrets.GITHUB_TOKEN }}'
+      #     prerelease: false
+      #     files: /out/*
+      #     title: tuxclocker-nvidia-plugin-${{ env.VERSION }}
+      #     automatic_release_tag: ${{ env.VERSION }}

@@ -1,0 +1,61 @@
+diff --git a/src/plugins/meson.build b/src/plugins/meson.build
+index 1a7ff57..2a58a0c 100644
+--- a/src/plugins/meson.build
++++ b/src/plugins/meson.build
+@@ -1,6 +1,8 @@
+ libdrm_amdgpu = cppc.find_library('libdrm_amdgpu', required : false)
+ libdrm_dep = dependency('libdrm', required : false)
+ 
++libtuxclocker = cc.find_library('libtuxclocker', dirs: get_option('prefix') / get_option('libdir') / 'tuxclocker')
++
+ patterns_inc = include_directories('../include/deps/patterns/include/mpark')
+ fplus_inc = include_directories('../include/deps/FunctionalPlus/include')
+ 
+@@ -33,14 +35,8 @@ if all_nvidia_linux_libs
+ 	shared_library('nvidia', 'Nvidia.cpp', 'Utils.cpp',
+ 		override_options : ['cpp_std=c++17'],
+ 		include_directories : [incdir, patterns_inc, fplus_inc],
+-		dependencies : [nvidia_linux_libs, boost_dep],
++		dependencies : [nvidia_linux_libs, boost_dep, libtuxclocker],
+ 		install_dir : get_option('libdir') / 'tuxclocker' / 'plugins',
+ 		install : true,
+-		link_with : libtuxclocker)
++		install_rpath : join_paths(get_option('prefix'), get_option('libdir'), 'tuxclocker'))
+ endif
+-
+-shared_library('cpu', 'CPU.cpp', 'Utils.cpp',
+-        include_directories : [incdir, fplus_inc],
+-        install_dir : get_option('libdir') / 'tuxclocker' / 'plugins',
+-        install : true,
+-        link_with : libtuxclocker)
+
+diff --git a/src/meson.build b/src/meson.build
+index 8522135..dc2d3b9 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -15,14 +15,17 @@ plugin_path_def = plugin_path_def_template.format(get_option('prefix'), get_opti
+ locale_path_def_template = '-DTUXCLOCKER_LOCALE_PATH="@0@/@1@/locale"'
+ locale_path_def = locale_path_def_template.format(get_option('prefix'), get_option('datadir'))
+ 
+-libtuxclocker = shared_library('tuxclocker',
+-	['lib/Crypto.cpp',
+-	 'lib/Plugin.cpp'],
+-	override_options : ['cpp_std=c++17'],
+-	include_directories : incdir,
+-	dependencies : [boost_dep, openssl_dep],
+-	cpp_args : plugin_path_def,
+-	install : true)
++if get_option('library')
++	libtuxclocker = shared_library('tuxclocker',
++		['lib/Crypto.cpp',
++		'lib/Plugin.cpp'],
++		override_options : ['cpp_std=c++17'],
++		include_directories : incdir,
++		dependencies : [boost_dep, openssl_dep],
++		cpp_args : plugin_path_def,
++		install : true,
++		install_dir : join_paths(get_option('libdir'), 'tuxclocker'))
++endif
+ 
+ if get_option('plugins')
+ 	subdir('plugins')
